@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAuth } from "@/hooks/useAuth";
 
-// Mock localStorage
+// ── localStorage mock ──────────────────────────────────────────────────────────
 const store: Record<string, string> = {};
 const localStorageMock = {
   getItem: vi.fn((key: string) => store[key] ?? null),
@@ -11,111 +11,142 @@ const localStorageMock = {
   clear: vi.fn(() => { Object.keys(store).forEach((k) => delete store[k]); }),
 };
 Object.defineProperty(window, "localStorage", { value: localStorageMock });
-
-// Mock crypto.randomUUID
 vi.stubGlobal("crypto", { randomUUID: () => "test-uuid-" + Math.random().toString(36).slice(2, 8) });
+
+// ── fetch mock helpers ─────────────────────────────────────────────────────────
+function mockFetch(responses: Record<string, { status: number; body: object }>) {
+  vi.stubGlobal("fetch", vi.fn((url: string) => {
+    const path = new URL(url).pathname;
+    const match = Object.entries(responses).find(([k]) => path.includes(k));
+    const { status, body } = match?.[1] ?? { status: 404, body: { success: false } };
+    return Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+    });
+  }));
+}
+
+const MOCK_USER = { id: "user-abc", name: "Alex", email: "a@b.com" };
+const MOCK_TOKEN = "mock-jwt-token";
 
 describe("useAuth", () => {
   beforeEach(() => {
     localStorageMock.clear();
     vi.clearAllMocks();
+    // Default: /auth/me returns 401 (not logged in)
+    mockFetch({ "/auth/me": { status: 401, body: { success: false } } });
   });
 
-  it("starts logged out with no session", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("starts logged out when no token in localStorage", () => {
     const { result } = renderHook(() => useAuth());
     expect(result.current.isLoggedIn).toBe(false);
     expect(result.current.user).toBeNull();
   });
 
-  it("signup creates user and logs in", () => {
+  it("restores session from cached user when token present", () => {
+    store["ww_token"] = MOCK_TOKEN;
+    store["ww_user"] = JSON.stringify(MOCK_USER);
+    mockFetch({ "/auth/me": { status: 200, body: { success: true, user: MOCK_USER } } });
+
     const { result } = renderHook(() => useAuth());
+    // Initial render reads cache synchronously
+    expect(result.current.isLoggedIn).toBe(true);
+    expect(result.current.user?.name).toBe("Alex");
+  });
+
+  it("signup calls API and sets logged-in state on success", async () => {
+    mockFetch({
+      "/auth/me": { status: 401, body: { success: false } },
+      "/auth/signup": { status: 201, body: { success: true, token: MOCK_TOKEN, user: MOCK_USER } },
+      "/cards": { status: 200, body: { success: true, cards: [] } },
+    });
+    const { result } = renderHook(() => useAuth());
+
     let res: { success: boolean; error?: string };
-    act(() => { res = result.current.signup("a@b.com", "pass123", "Alex"); });
+    await act(async () => { res = await result.current.signup("a@b.com", "pass123", "Alex"); });
+
     expect(res!.success).toBe(true);
     expect(result.current.isLoggedIn).toBe(true);
     expect(result.current.user?.name).toBe("Alex");
-    expect(result.current.user?.email).toBe("a@b.com");
+    expect(store["ww_token"]).toBe(MOCK_TOKEN);
   });
 
-  it("prevents duplicate email signup", () => {
+  it("signup returns error when API fails", async () => {
+    mockFetch({
+      "/auth/me": { status: 401, body: { success: false } },
+      "/auth/signup": { status: 409, body: { success: false, error: "Email already registered" } },
+    });
     const { result } = renderHook(() => useAuth());
-    act(() => { result.current.signup("a@b.com", "pass123", "Alex"); });
-    // Logout and try signup again with same email
-    act(() => { result.current.logout(); });
+
     let res: { success: boolean; error?: string };
-    act(() => { res = result.current.signup("a@b.com", "pass456", "Bob"); });
+    await act(async () => { res = await result.current.signup("a@b.com", "pass123", "Alex"); });
+
     expect(res!.success).toBe(false);
     expect(res!.error).toContain("already registered");
+    expect(result.current.isLoggedIn).toBe(false);
   });
 
-  it("login with correct credentials works", () => {
+  it("login calls API and sets logged-in state on success", async () => {
+    mockFetch({
+      "/auth/me": { status: 401, body: { success: false } },
+      "/auth/login": { status: 200, body: { success: true, token: MOCK_TOKEN, user: MOCK_USER } },
+      "/cards": { status: 200, body: { success: true, cards: [] } },
+    });
     const { result } = renderHook(() => useAuth());
-    act(() => { result.current.signup("a@b.com", "pass123", "Alex"); });
-    act(() => { result.current.logout(); });
+
     let res: { success: boolean; error?: string };
-    act(() => { res = result.current.login("a@b.com", "pass123"); });
+    await act(async () => { res = await result.current.login("a@b.com", "pass123"); });
+
     expect(res!.success).toBe(true);
     expect(result.current.isLoggedIn).toBe(true);
   });
 
-  it("login with wrong password fails", () => {
+  it("login returns error on wrong password", async () => {
+    mockFetch({
+      "/auth/me": { status: 401, body: { success: false } },
+      "/auth/login": { status: 401, body: { success: false, error: "Invalid credentials" } },
+    });
     const { result } = renderHook(() => useAuth());
-    act(() => { result.current.signup("a@b.com", "pass123", "Alex"); });
-    act(() => { result.current.logout(); });
+
     let res: { success: boolean; error?: string };
-    act(() => { res = result.current.login("a@b.com", "wrongpass"); });
+    await act(async () => { res = await result.current.login("a@b.com", "wrongpass"); });
+
     expect(res!.success).toBe(false);
     expect(res!.error).toContain("Invalid");
   });
 
-  it("logout clears session", () => {
+  it("logout clears token and user from localStorage", async () => {
+    store["ww_token"] = MOCK_TOKEN;
+    store["ww_user"] = JSON.stringify(MOCK_USER);
+    mockFetch({ "/auth/me": { status: 200, body: { success: true, user: MOCK_USER } } });
+
     const { result } = renderHook(() => useAuth());
-    act(() => { result.current.signup("a@b.com", "pass123", "Alex"); });
     expect(result.current.isLoggedIn).toBe(true);
+
     act(() => { result.current.logout(); });
     expect(result.current.isLoggedIn).toBe(false);
     expect(result.current.user).toBeNull();
+    expect(store["ww_token"]).toBeUndefined();
   });
 
-  it("updateProfile persists changes", () => {
+  it("updateProfile merges fields into user state", async () => {
+    store["ww_token"] = MOCK_TOKEN;
+    store["ww_user"] = JSON.stringify(MOCK_USER);
+    mockFetch({
+      "/auth/me": { status: 200, body: { success: true, user: MOCK_USER } },
+      "/users": { status: 200, body: { success: true, user: { ...MOCK_USER, grossMonthlyIncome: 5000 } } },
+    });
     const { result } = renderHook(() => useAuth());
-    act(() => { result.current.signup("a@b.com", "pass123", "Alex"); });
-    act(() => { result.current.updateProfile({ grossMonthlyIncome: 5000, netMonthlyIncome: 4000 }); });
+
+    await act(async () => {
+      await result.current.updateProfile({ grossMonthlyIncome: 5000, netMonthlyIncome: 4000 });
+    });
+
     expect(result.current.user?.grossMonthlyIncome).toBe(5000);
-    expect(result.current.user?.netMonthlyIncome).toBe(4000);
-  });
-
-  it("resetPassword allows login with new password", () => {
-    const { result } = renderHook(() => useAuth());
-    act(() => { result.current.signup("a@b.com", "pass123", "Alex"); });
-    act(() => { result.current.logout(); });
-    let resetRes: { success: boolean; error?: string };
-    act(() => { resetRes = result.current.resetPassword("a@b.com", "newpass456"); });
-    expect(resetRes!.success).toBe(true);
-    // Old password should fail
-    let loginRes: { success: boolean; error?: string };
-    act(() => { loginRes = result.current.login("a@b.com", "pass123"); });
-    expect(loginRes!.success).toBe(false);
-    // New password should work
-    act(() => { loginRes = result.current.login("a@b.com", "newpass456"); });
-    expect(loginRes!.success).toBe(true);
-  });
-
-  it("resetPassword fails for unknown email", () => {
-    const { result } = renderHook(() => useAuth());
-    let res: { success: boolean; error?: string };
-    act(() => { res = result.current.resetPassword("nobody@test.com", "pass123"); });
-    expect(res!.success).toBe(false);
-    expect(res!.error).toContain("No account");
-  });
-
-  it("session persists across hook re-render", () => {
-    const { result: r1 } = renderHook(() => useAuth());
-    act(() => { r1.current.signup("a@b.com", "pass123", "Alex"); });
-    const userId = r1.current.user?.id;
-    // Simulate re-mount by rendering a new hook (localStorage still has session)
-    const { result: r2 } = renderHook(() => useAuth());
-    expect(r2.current.isLoggedIn).toBe(true);
-    expect(r2.current.user?.id).toBe(userId);
   });
 });

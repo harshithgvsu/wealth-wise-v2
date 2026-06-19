@@ -6,27 +6,7 @@ import {
 } from "lucide-react";
 import type { Expense } from "@/hooks/useExpenses";
 import type { UserProfile } from "@/hooks/useAuth";
-
-// ─── Preset Card Catalogue ───────────────────────────────────────────────────
-interface PresetCard {
-  id: string; name: string; issuer: string;
-  network: "Visa" | "Mastercard" | "Amex" | "Discover";
-  annualFee: number; signupBonus?: string; signupSpend?: number;
-  rewards: { [category: string]: number };
-  baseReward: number; rewardType: "points" | "cashback" | "miles";
-  centsPerPoint: number; color: string; cardBg: string;
-}
-
-const PRESET_CARDS: PresetCard[] = [
-  { id:"amex-gold", name:"Gold Card", issuer:"Amex", network:"Amex", annualFee:250, signupBonus:"60,000 pts ($600)", signupSpend:4000, rewards:{"Food & Dining":4,Restaurant:4,Groceries:4,Travel:3}, baseReward:1, rewardType:"points", centsPerPoint:1.0, color:"#D4A843", cardBg:"from-yellow-700 via-yellow-600 to-yellow-400" },
-  { id:"chase-sapphire-preferred", name:"Sapphire Preferred", issuer:"Chase", network:"Visa", annualFee:95, signupBonus:"60,000 pts ($750 travel)", signupSpend:4000, rewards:{Travel:3,"Food & Dining":3,Restaurant:3,Streaming:3}, baseReward:1, rewardType:"points", centsPerPoint:1.25, color:"#2A6FBF", cardBg:"from-blue-900 via-blue-800 to-blue-600" },
-  { id:"chase-sapphire-reserve", name:"Sapphire Reserve", issuer:"Chase", network:"Visa", annualFee:550, signupBonus:"60,000 pts ($900 travel)", signupSpend:4000, rewards:{Travel:10,"Food & Dining":3,Restaurant:3,Gas:3}, baseReward:1, rewardType:"points", centsPerPoint:1.5, color:"#1A1A2E", cardBg:"from-slate-900 via-slate-800 to-slate-700" },
-  { id:"citi-double-cash", name:"Double Cash", issuer:"Citi", network:"Mastercard", annualFee:0, rewards:{}, baseReward:2, rewardType:"cashback", centsPerPoint:1, color:"#005792", cardBg:"from-sky-900 via-sky-800 to-sky-600" },
-  { id:"amex-blue-cash-preferred", name:"Blue Cash Preferred", issuer:"Amex", network:"Amex", annualFee:95, signupBonus:"$250 statement credit", signupSpend:3000, rewards:{Groceries:6,Streaming:6,Gas:3,Transit:3}, baseReward:1, rewardType:"cashback", centsPerPoint:1, color:"#1A5276", cardBg:"from-blue-900 via-cyan-800 to-blue-500" },
-  { id:"discover-it", name:"Discover it® Cash Back", issuer:"Discover", network:"Discover", annualFee:0, signupBonus:"Cashback match first year", signupSpend:0, rewards:{Groceries:5,Gas:5,Restaurants:5}, baseReward:1, rewardType:"cashback", centsPerPoint:1, color:"#F97316", cardBg:"from-orange-700 via-orange-600 to-orange-400" },
-  { id:"venture-x", name:"Venture X", issuer:"Capital One", network:"Visa", annualFee:395, signupBonus:"75,000 miles ($750 travel)", signupSpend:4000, rewards:{Travel:10,"Food & Dining":2,Restaurant:2}, baseReward:2, rewardType:"miles", centsPerPoint:1.0, color:"#C0392B", cardBg:"from-red-900 via-red-800 to-rose-600" },
-  { id:"apple-card", name:"Apple Card", issuer:"Goldman Sachs", network:"Mastercard", annualFee:0, rewards:{Apple:3}, baseReward:1, rewardType:"cashback", centsPerPoint:1, color:"#9CA3AF", cardBg:"from-gray-600 via-gray-400 to-white" },
-];
+import { usePresetCards, type PresetCard } from "@/hooks/usePresetCards";
 
 interface UserCard {
   presetId?: string; name: string; issuer: string; network: string;
@@ -39,7 +19,7 @@ interface UserCard {
   cardType?: "credit" | "debit";
 }
 
-const CARDS_KEY = (userId?: string) => `spendwise_cards_${userId || "default"}`;
+const CARDS_KEY = (userId?: string) => `ww_cards_${userId || "anon"}`;
 function loadCards(userId?: string): UserCard[] {
   try { return JSON.parse(localStorage.getItem(CARDS_KEY(userId)) || "[]"); }
   catch { return []; }
@@ -77,9 +57,9 @@ function getBestCard(cards: UserCard[], cat: string): UserCard | null {
     getCardRate(card, cat) * card.centsPerPoint > getCardRate(best, cat) * best.centsPerPoint ? card : best
   );
 }
-function recommendNextCard(owned: UserCard[], expenses: Expense[]): { card: PresetCard; reason: string } | null {
+function recommendNextCard(owned: UserCard[], expenses: Expense[], presets: PresetCard[]): { card: PresetCard; reason: string } | null {
   const ownedIds = new Set(owned.map(c => c.presetId).filter(Boolean));
-  const available = PRESET_CARDS.filter(c => !ownedIds.has(c.id));
+  const available = presets.filter(c => !ownedIds.has(c.id));
   if (!available.length || !expenses.length) return null;
   const catTotals: Record<string, number> = {};
   for (const e of expenses) { const c = mapCategory(e.category); catTotals[c] = (catTotals[c] || 0) + e.amount; }
@@ -130,7 +110,7 @@ const inp = "w-full bg-secondary text-foreground rounded-xl px-3 py-3 border bor
 const lbl = "text-xs text-muted-foreground mb-1.5 block font-medium";
 
 // ─── Add Card Sheet — fully rebuilt for iOS PWA ───────────────────────────────
-function AddCardSheet({ onAdd, onClose }: { onAdd: (card: UserCard) => void; onClose: () => void }) {
+function AddCardSheet({ onAdd, onClose, presetCards }: { onAdd: (card: UserCard) => void; onClose: () => void; presetCards: PresetCard[] }) {
   const [mode, setMode] = useState<"preset" | "custom">("preset");
   const [selected, setSelected] = useState<PresetCard | null>(null);
   const [creditLimit, setCreditLimit] = useState("");
@@ -275,7 +255,7 @@ function AddCardSheet({ onAdd, onClose }: { onAdd: (card: UserCard) => void; onC
           {mode === "preset" && (
             <>
               <div className="grid grid-cols-2 gap-2.5 mb-4">
-                {PRESET_CARDS.map(p => (
+                {presetCards.map(p => (
                   <button
                     key={p.id}
                     onClick={() => setSelected(selected?.id === p.id ? null : p)}
@@ -464,6 +444,7 @@ function AddCardSheet({ onAdd, onClose }: { onAdd: (card: UserCard) => void; onC
 interface Props { expenses: Expense[]; userProfile: UserProfile; }
 
 export function CreditCardHub({ expenses, userProfile }: Props) {
+  const { presets, stale } = usePresetCards();
   const [cards, setCards] = useState<UserCard[]>(() => loadCards(userProfile?.id));
   const [showAdd, setShowAdd] = useState(false);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
@@ -488,7 +469,7 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
   }, 0);
   const totalFees = cards.reduce((s, c) => s + c.annualFee / 12, 0);
   const netRewards = totalRewards - totalFees;
-  const recommendation = recommendNextCard(cards, expenses);
+  const recommendation = recommendNextCard(cards, expenses, presets);
   const utilizationAlerts = cards
     .filter(c => c.creditLimit && c.currentBalance)
     .map(c => ({ card: c, pct: (c.currentBalance! / c.creditLimit!) * 100 }))
@@ -496,6 +477,11 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
 
   return (
     <div className="space-y-4 animate-in-up">
+      {stale && (
+        <div className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-1.5">
+          Showing cached card benefits — live update unavailable
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -732,7 +718,7 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
               </div>
               <p className="text-xs text-muted-foreground font-medium">Other cards you don't have yet</p>
               <div className="grid grid-cols-2 gap-2">
-                {PRESET_CARDS.filter(p => !cards.some(c=>c.presetId===p.id) && p.id!==recommendation.card.id).slice(0,4).map(p => (
+                {presets.filter(p => !cards.some(c=>c.presetId===p.id) && p.id!==recommendation.card.id).slice(0,4).map(p => (
                   <div key={p.id} className="glass rounded-xl p-3">
                     <CardVisual card={p} small />
                     <p className="text-xs font-semibold mt-1.5 leading-tight">{p.issuer} {p.name}</p>
@@ -753,7 +739,7 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
         </div>
       )}
 
-      {showAdd && <AddCardSheet onAdd={persistAdd} onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddCardSheet onAdd={persistAdd} onClose={() => setShowAdd(false)} presetCards={presets} />}
     </div>
   );
 }

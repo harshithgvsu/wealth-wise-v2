@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 // Test the credit card storage and helpers independently
 describe("CreditCardHub - Storage", () => {
-  const STORAGE_KEY = (userId: string) => `spendwise_cards_${userId}`;
+  const STORAGE_KEY = (userId: string) => `ww_cards_${userId}`;
 
   beforeEach(() => {
     localStorage.clear();

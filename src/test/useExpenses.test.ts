@@ -85,7 +85,7 @@ describe("useExpenses", () => {
     act(() => { result.current.addExpense({ amount: 50, category: "Health", description: "Meds", date: "2026-02-20" }); });
     // Check localStorage was called with the right key
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      "spendwise_expenses_user1",
+      "ww_expenses_user1",
       expect.stringContaining("Meds")
     );
   });
