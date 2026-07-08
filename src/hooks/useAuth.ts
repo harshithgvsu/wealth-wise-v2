@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 export interface PaycheckRecord {
   id: string;
   amount: number;
-  date: string; // YYYY-MM-DD
+  date: string;
 }
 
 export interface SavingsAccount {
@@ -41,50 +41,20 @@ export interface AuthState {
 }
 
 const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const TOKEN_KEY = "ww_token";
-const USER_CACHE_KEY = "ww_user";
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-function saveToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_CACHE_KEY);
-}
-
-function getCachedUser(): UserProfile | null {
-  try {
-    const raw = localStorage.getItem(USER_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function cacheUser(user: UserProfile) {
-  localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
-}
-
+// Cookie-based: no token in localStorage. All requests use credentials: 'include'
+// so the httpOnly ww_token cookie is sent automatically by the browser.
 async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = getToken();
   return fetch(`${API}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers || {}),
     },
   });
 }
 
-// Fetch cards from server and write to localStorage so CreditCardHub can read them
 async function syncCardsToLocal(userId: string) {
   try {
     const res = await apiFetch("/cards");
@@ -98,42 +68,27 @@ async function syncCardsToLocal(userId: string) {
   }
 }
 
-// ── Hook ───────────────────────────────────────────────────────────────────
-
 export function useAuth() {
-  const [authState, setAuthState] = useState<AuthState>(() => {
-    const user = getCachedUser();
-    return user ? { user, isLoggedIn: true } : { user: null, isLoggedIn: false };
-  });
+  const [authState, setAuthState] = useState<AuthState>({ user: null, isLoggedIn: false });
 
-  // On mount, validate the stored token against the server
+  // On mount, validate session via cookie (no localStorage read needed)
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-
     apiFetch("/auth/me")
       .then(async (res) => {
-        if (!res.ok) throw new Error("invalid");
+        if (!res.ok) return;
         const data = await res.json();
         if (data.success && data.user) {
-          cacheUser(data.user);
           setAuthState({ user: data.user, isLoggedIn: true });
-          // Sync cards to localStorage so CreditCardHub finds them
           syncCardsToLocal(data.user.id);
         }
       })
       .catch(() => {
-        clearToken();
-        setAuthState({ user: null, isLoggedIn: false });
+        // No valid session — stay logged out
       });
   }, []);
 
   const signup = useCallback(
-    async (
-      email: string,
-      password: string,
-      name: string
-    ): Promise<{ success: boolean; error?: string }> => {
+    async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
       try {
         const res = await apiFetch("/auth/signup", {
           method: "POST",
@@ -142,8 +97,7 @@ export function useAuth() {
         const data = await res.json();
         if (!data.success) return { success: false, error: data.error };
 
-        saveToken(data.token);
-        cacheUser(data.user);
+        // Cookie is set by the server; just update state
         setAuthState({ user: data.user, isLoggedIn: true });
         syncCardsToLocal(data.user.id);
         return { success: true };
@@ -155,10 +109,7 @@ export function useAuth() {
   );
 
   const login = useCallback(
-    async (
-      email: string,
-      password: string
-    ): Promise<{ success: boolean; error?: string }> => {
+    async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
       try {
         const res = await apiFetch("/auth/login", {
           method: "POST",
@@ -167,10 +118,7 @@ export function useAuth() {
         const data = await res.json();
         if (!data.success) return { success: false, error: data.error };
 
-        saveToken(data.token);
-        cacheUser(data.user);
         setAuthState({ user: data.user, isLoggedIn: true });
-        // Sync cards to localStorage so CreditCardHub finds them immediately
         syncCardsToLocal(data.user.id);
         return { success: true };
       } catch {
@@ -180,45 +128,44 @@ export function useAuth() {
     []
   );
 
-  const logout = useCallback(() => {
-    clearToken();
+  const logout = useCallback(async () => {
+    // Clear the httpOnly cookie server-side
+    await apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    // Clear any remaining local data (cards cache only — no financial data stored locally)
+    const userId = authState.user?.id;
+    if (userId) localStorage.removeItem(`ww_cards_${userId}`);
     setAuthState({ user: null, isLoggedIn: false });
-  }, []);
+  }, [authState.user?.id]);
 
   const updateProfile = useCallback(
     async (updates: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>) => {
       setAuthState((prev) => {
         if (!prev.user) return prev;
-        const updated = { ...prev.user, ...updates };
-        cacheUser(updated);
-        return { user: updated, isLoggedIn: true };
+        return { user: { ...prev.user, ...updates }, isLoggedIn: true };
       });
 
-      const user = getCachedUser();
-      if (!user) return;
-
-      try {
-        const res = await apiFetch(`/users/${user.id}`, {
+      setAuthState((prev) => {
+        if (!prev.user) return prev;
+        const userId = prev.user.id;
+        apiFetch(`/users/${userId}`, {
           method: "PATCH",
           body: JSON.stringify(updates),
-        });
-        const data = await res.json();
-        if (data.success && data.user) {
-          cacheUser(data.user);
-          setAuthState({ user: data.user, isLoggedIn: true });
-        }
-      } catch {
-        console.warn("Profile sync failed, will retry on next load");
-      }
+        })
+          .then(async (res) => {
+            const data = await res.json();
+            if (data.success && data.user) {
+              setAuthState({ user: data.user, isLoggedIn: true });
+            }
+          })
+          .catch(() => console.warn("Profile sync failed, will retry on next load"));
+        return prev;
+      });
     },
     []
   );
 
   const resetPassword = useCallback(
-    async (
-      email: string,
-      newPassword: string
-    ): Promise<{ success: boolean; error?: string }> => {
+    async (email: string, newPassword: string): Promise<{ success: boolean; error?: string }> => {
       try {
         const res = await apiFetch("/auth/reset-password", {
           method: "POST",

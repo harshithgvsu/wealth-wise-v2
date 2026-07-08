@@ -7,14 +7,13 @@ interface Message { id: string; role: "user" | "assistant"; content: string; tim
 interface AIChatProps { expenses: Expense[]; userProfile: UserProfile; onAddExpense?: (expense: Omit<Expense, "id" | "createdAt">) => void; }
 
 const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const TOKEN_KEY = "ww_token";
-function getToken() { return localStorage.getItem(TOKEN_KEY); }
 
 async function aiChat(message: string, expenses: Expense[], profile: UserProfile, history: Message[]): Promise<string | null> {
   try {
     const res = await fetch(`${API}/ai/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, expenses, profile, history: history.slice(-8) }),
     });
     const data = await res.json();
@@ -29,7 +28,8 @@ async function aiParseExpense(text: string): Promise<{ amount: number; category:
   try {
     const res = await fetch(`${API}/ai/parse-expense`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     const data = await res.json();

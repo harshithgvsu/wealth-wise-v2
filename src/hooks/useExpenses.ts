@@ -76,8 +76,6 @@ export const CATEGORY_COLORS: Record<Category, string> = {
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const TOKEN_KEY = "ww_token";
-const LOCAL_KEY = (userId?: string) => `ww_expenses_${userId || "anon"}`;
 const CARDS_KEY = (userId?: string) => `ww_cards_${userId || "anon"}`;
 
 // ── Category normalization (same as before) ────────────────────────────────
@@ -162,50 +160,33 @@ export function parseDateString(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
+// ── API helper — cookie-based auth, no token in localStorage ───────────────
 async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = localStorage.getItem(TOKEN_KEY);
   return fetch(`${API}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers || {}),
     },
   });
 }
 
-// ── Local cache helpers ────────────────────────────────────────────────────
-function readLocal(userId?: string): Expense[] {
-  try {
-    const raw = localStorage.getItem(LOCAL_KEY(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(expenses: Expense[], userId?: string) {
-  localStorage.setItem(LOCAL_KEY(userId), JSON.stringify(expenses));
-}
-
 // ── Hook ───────────────────────────────────────────────────────────────────
 export function useExpenses(userId?: string) {
-  const [expenses, setExpenses] = useState<Expense[]>(() => readLocal(userId));
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [syncing, setSyncing] = useState(false);
   const prevUserId = useRef(userId);
 
-  // When userId changes (login/logout) reload from cache
+  // When userId changes (login/logout) clear in-memory state
   useEffect(() => {
     if (prevUserId.current !== userId) {
       prevUserId.current = userId;
-      setExpenses(readLocal(userId));
+      setExpenses([]);
     }
   }, [userId]);
 
-  // On mount (or userId change) — fetch from server and merge
+  // On mount (or userId change) — fetch from server
   useEffect(() => {
     if (!userId) return;
 
@@ -216,20 +197,11 @@ export function useExpenses(userId?: string) {
         const data = await res.json();
         if (data.success && Array.isArray(data.expenses)) {
           setExpenses(data.expenses);
-          writeLocal(data.expenses, userId);
         }
       })
-      .catch(() => {
-        // Server unreachable — keep using local cache
-        console.warn("Expenses fetch failed, using local cache");
-      })
+      .catch(() => console.warn("Expenses fetch failed"))
       .finally(() => setSyncing(false));
   }, [userId]);
-
-  // Keep local cache in sync with state
-  useEffect(() => {
-    writeLocal(expenses, userId);
-  }, [expenses, userId]);
 
   const addExpense = useCallback(
     (expense: Omit<Expense, "id" | "createdAt">) => {
@@ -277,8 +249,6 @@ export function useExpenses(userId?: string) {
 
   const resetExpenses = useCallback(() => {
     setExpenses([]);
-    localStorage.removeItem(LOCAL_KEY(userId));
-
     apiFetch("/expenses", { method: "DELETE" }).catch(() =>
       console.warn("Reset sync failed")
     );

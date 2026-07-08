@@ -18,6 +18,8 @@ import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { InvestmentSuggestions } from "@/components/InvestmentSuggestions";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { CreditCardHub } from "@/components/CreditCardHub";
+import { BankConnect } from "@/components/BankConnect";
+import { usePlaid } from "@/hooks/usePlaid";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -66,11 +68,37 @@ export default function Index() {
     useExpenses(user?.id);
   const cardOptions = getExpenseCardOptions(user?.id);
 
+  const {
+    configured: plaidConfigured,
+    connections: plaidConnections,
+    transactions: plaidTransactions,
+    holdings: plaidHoldings,
+    accounts: plaidAccounts,
+    loadingConnections: plaidLoadingConnections,
+    loadingTransactions: plaidLoadingTransactions,
+    loadingInvestments: plaidLoadingInvestments,
+    getLinkToken,
+    onSuccess: onPlaidSuccess,
+    fetchTransactions: fetchPlaidTransactions,
+    fetchInvestments: fetchPlaidInvestments,
+    disconnect: plaidDisconnect,
+  } = usePlaid(user?.id);
+
+  const handleImportTransactions = (txs: import("@/hooks/usePlaid").PlaidTransaction[]) => {
+    for (const tx of txs) {
+      addExpense({
+        amount: tx.amount,
+        category: tx.category as import("@/hooks/useExpenses").Category,
+        description: tx.description,
+        date: tx.date,
+      });
+    }
+  };
+
   // ── Migration: push any localStorage data to MongoDB on first login ──────
   useEffect(() => {
     if (isLoggedIn && user) {
-      const token = localStorage.getItem("ww_token");
-      if (token) migrateLocalData(user.id, token);
+      migrateLocalData(user.id);
     }
   }, [isLoggedIn, user?.id]);
 
@@ -384,6 +412,33 @@ export default function Index() {
               <h1 className="text-xl font-bold">Investment <span className="text-gradient-primary">Suggestions</span></h1>
               <p className="text-sm text-muted-foreground">Personalised based on your spending trends & goals</p>
             </div>
+            {plaidHoldings.length > 0 && (
+              <div className="glass rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Your Portfolio</p>
+                  <span className="text-xs text-muted-foreground">
+                    {plaidConnections.filter((c) => c.accountTypes.includes("investment")).map((c) => c.institutionName).join(", ")}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {plaidHoldings.slice(0, 6).map((h, i) => {
+                    const gain = h.costBasis != null ? h.institutionValue - h.costBasis : null;
+                    const gainPct = gain != null && h.costBasis ? (gain / h.costBasis) * 100 : null;
+                    return (
+                      <div key={i} className="bg-secondary/50 rounded-lg px-3 py-2 text-xs">
+                        <p className="font-mono font-bold text-primary">{h.ticker || h.name.slice(0, 6)}</p>
+                        <p className="font-semibold">${h.institutionValue.toFixed(2)}</p>
+                        {gainPct != null && (
+                          <p className={gainPct >= 0 ? "text-emerald-400" : "text-destructive"}>
+                            {gainPct >= 0 ? "+" : ""}{gainPct.toFixed(1)}%
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <InvestmentSuggestions expenses={expenses} userProfile={user} currentMonth={month} currentYear={year} />
           </div>
         )}
@@ -405,6 +460,26 @@ export default function Index() {
               <p className="text-sm text-muted-foreground">Update your income, expenses & investment goals</p>
             </div>
             <ProfileSettings user={user} onUpdate={updateProfile} onLogout={() => setShowLogoutConfirm(true)} onResetExpenses={resetExpenses} expenseCount={expenses.length} />
+            <div>
+              <h2 className="text-base font-bold mb-3">Bank & <span className="text-gradient-primary">Investment Accounts</span></h2>
+              <BankConnect
+                connections={plaidConnections}
+                configured={plaidConfigured}
+                loadingConnections={plaidLoadingConnections}
+                loadingTransactions={plaidLoadingTransactions}
+                loadingInvestments={plaidLoadingInvestments}
+                transactions={plaidTransactions}
+                holdings={plaidHoldings}
+                accounts={plaidAccounts}
+                getLinkToken={getLinkToken}
+                onSuccess={onPlaidSuccess}
+                fetchTransactions={fetchPlaidTransactions}
+                fetchInvestments={fetchPlaidInvestments}
+                disconnect={plaidDisconnect}
+                onImportTransactions={handleImportTransactions}
+                existingExpenses={expenses}
+              />
+            </div>
           </div>
         )}
       </main>
