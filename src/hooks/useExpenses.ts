@@ -99,7 +99,11 @@ function normalizeCategoryKey(key: string): Category | null {
   return CATEGORY_NORMALIZATION[cleaned] || null;
 }
 
-// ── Card helpers (reads from localStorage — cards hook writes there) ────────
+// ── Card helpers ─────────────────────────────────────────────────────────────
+// Cards themselves are stored on the backend (see /cards); this reads a local
+// mirror of that data that CreditCardHub.tsx keeps in sync on every fetch/add/
+// remove, so reward calculation here can stay synchronous. Source of truth is
+// the API, not this key — see CreditCardHub.tsx's cacheCards().
 export function getExpenseCardOptions(userId?: string): CardOption[] {
   try {
     const cards = JSON.parse(localStorage.getItem(CARDS_KEY(userId)) || "[]") as HubCard[];
@@ -276,21 +280,11 @@ export function useExpenses(userId?: string) {
     return map;
   }, []);
 
-  // Bulk sync — call this once after login to push any locally-saved expenses
-  // that were created while the user was offline or before backend was set up
-  const syncLocalToServer = useCallback(async () => {
-    const local = readLocal(userId);
-    if (!local.length) return;
-
-    try {
-      await apiFetch("/expenses/bulk", {
-        method: "POST",
-        body: JSON.stringify({ expenses: local }),
-      });
-    } catch {
-      console.warn("Bulk sync failed");
-    }
-  }, [userId]);
+  // Note: the pre-backend "bulk sync locally-saved expenses on login" path
+  // used to live here as syncLocalToServer(), but it called an undefined
+  // readLocal() (dead code — never actually reachable) and nothing imported
+  // it. That job is handled by src/utils/migrateLocalData.ts instead, which
+  // already does the one-time push via /expenses/bulk on first login.
 
   return {
     expenses,
@@ -301,6 +295,5 @@ export function useExpenses(userId?: string) {
     getMonthExpenses,
     getTotalByCategory,
     getDailyTotals,
-    syncLocalToServer,
   };
 }

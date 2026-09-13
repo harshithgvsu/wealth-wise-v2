@@ -19,13 +19,47 @@ interface UserCard {
   cardType?: "credit" | "debit";
 }
 
-const CARDS_KEY = (userId?: string) => `ww_cards_${userId || "anon"}`;
-function loadCards(userId?: string): UserCard[] {
-  try { return JSON.parse(localStorage.getItem(CARDS_KEY(userId)) || "[]"); }
-  catch { return []; }
+// Backend is the source of truth (see /cards in wealthwise-backend) — this used
+// to read/write localStorage directly and never synced across devices.
+// migrateLocalData() still pushes any pre-existing localStorage cards to the
+// API once on login; this file talks to the API from here on.
+//
+// getExpenseCardOptions() in useExpenses.ts (used by ExpenseForm and AIChat for
+// reward calculation) still reads this same key *synchronously*, so it's kept
+// as a same-shape read cache on every successful fetch/add/remove below — a
+// mirror of the backend, not a second source of truth. If that synchronous
+// reward-calc path is ever made async, this mirror can be deleted.
+const CARDS_CACHE_KEY = (userId?: string) => `ww_cards_${userId || "anon"}`;
+function cacheCards(cards: UserCard[], userId?: string) {
+  try { localStorage.setItem(CARDS_CACHE_KEY(userId), JSON.stringify(cards)); } catch {}
 }
-function saveCards(cards: UserCard[], userId?: string) {
-  localStorage.setItem(CARDS_KEY(userId), JSON.stringify(cards));
+
+const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${API}${path}`, {
+    ...init,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+  });
+}
+
+async function fetchCards(): Promise<UserCard[]> {
+  try {
+    const res = await apiFetch("/cards");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.success && Array.isArray(data.cards) ? data.cards : [];
+  } catch {
+    console.warn("Cards fetch failed");
+    return [];
+  }
+}
+function createCard(card: UserCard): Promise<Response> {
+  return apiFetch("/cards", { method: "POST", body: JSON.stringify(card) });
+}
+function deleteCardRemote(id: string): Promise<Response> {
+  return apiFetch(`/cards/${id}`, { method: "DELETE" });
 }
 
 const CATEGORY_MATCH: Record<string, string[]> = {
@@ -445,18 +479,39 @@ interface Props { expenses: Expense[]; userProfile: UserProfile; }
 
 export function CreditCardHub({ expenses, userProfile }: Props) {
   const { presets, stale } = usePresetCards();
-  const [cards, setCards] = useState<UserCard[]>(() => loadCards(userProfile?.id));
+  const [cards, setCards] = useState<UserCard[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"cards" | "optimizer" | "next">("cards");
 
+  // Fetch from the backend on mount / user change — same pattern as useExpenses.
+  useEffect(() => {
+    if (!userProfile?.id) return;
+    let cancelled = false;
+    fetchCards().then(remote => {
+      if (cancelled) return;
+      setCards(remote);
+      cacheCards(remote, userProfile.id);
+    });
+    return () => { cancelled = true; };
+  }, [userProfile?.id]);
+
   const persistAdd = (card: UserCard) => {
-    const next = [...cards, card];
-    setCards(next); saveCards(next, userProfile?.id); setShowAdd(false);
+    setCards(prev => {
+      const next = [...prev, card]; // optimistic
+      cacheCards(next, userProfile?.id);
+      return next;
+    });
+    setShowAdd(false);
+    createCard(card).catch(() => console.warn("Card sync failed — saved locally only"));
   };
   const removeCard = (id: string) => {
-    const next = cards.filter(c => c.id !== id);
-    setCards(next); saveCards(next, userProfile?.id);
+    setCards(prev => {
+      const next = prev.filter(c => c.id !== id); // optimistic
+      cacheCards(next, userProfile?.id);
+      return next;
+    });
+    deleteCardRemote(id).catch(() => console.warn("Card delete sync failed"));
   };
 
   const allCategories = [...new Set(expenses.map(e => mapCategory(e.category)))];

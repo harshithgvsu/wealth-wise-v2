@@ -50,6 +50,40 @@ When this variable is set, the app will attempt to sync auth/profile/expense dat
 - `npm run lint` – run ESLint
 - `npm run test` – run tests once with Vitest
 - `npm run test:watch` – run Vitest in watch mode
+- `npm run cap:sync` – build and copy the web app into the native iOS/Android projects
+- `npm run cap:ios` – sync then open the iOS project in Xcode
+- `npm run cap:android` – sync then open the Android project in Android Studio
+
+## iOS app (Capacitor)
+
+The web app is wrapped as a native iOS shell with [Capacitor](https://capacitorjs.com) —
+same React source, no separate codebase. Requires a Mac with Xcode + CocoaPods; this
+repo was scaffolded on Linux, so `pod install` hasn't run yet.
+
+```sh
+npm install
+sudo gem install cocoapods   # one-time, on the Mac
+npm run cap:ios              # builds the web app, syncs it, opens Xcode
+```
+
+Then build/run from Xcode onto a device or simulator as usual. `npm run cap:ios` again
+after any code change to pick it up.
+
+### Quick-log entry points
+
+Two ways into the app's "log an expense fast" overlay, both iOS-only (inert on
+web/Android):
+
+- **Home Screen long-press** — shows 4 quick actions (Food & Dining, Transport,
+  Shopping, Bills & Utilities), each dropping straight into that category's
+  amount entry. Registered automatically at launch, no setup needed.
+- **Back Tap** — Apple doesn't expose the back-tap gesture to third-party apps at
+  all; there's no API for it. The app registers a `wealthwise://quicklog` URL
+  scheme that opens the category-picker overlay, but *wiring Back Tap to it is a
+  one-time manual step you do in iOS Settings*, not something the app can do
+  for you:
+  1. Shortcuts app → **+** → search **Open URLs** → paste `wealthwise://quicklog` → save as e.g. "Quick Log"
+  2. Settings → Accessibility → Touch → **Back Tap** → Double Tap (or Triple Tap) → pick "Quick Log"
 
 ## Tech stack
 

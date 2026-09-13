@@ -8,6 +8,18 @@ interface AIChatProps { expenses: Expense[]; userProfile: UserProfile; onAddExpe
 
 const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
+// Diagnostic only — fires once, doesn't change behavior. If you're seeing
+// canned/generic replies instead of real AI answers, open devtools console:
+// this tells you whether it's a build-time config issue (no API URL) before
+// you go check the backend's ANTHROPIC_API_KEY.
+if (!API && import.meta.env.DEV === false) {
+  console.warn(
+    "[WealthWise AI] VITE_API_BASE_URL is empty in this build — /ai/chat and " +
+    "/ai/parse-expense will fetch a relative path and fail, silently falling " +
+    "back to local canned responses. Set VITE_API_BASE_URL before `npm run build`."
+  );
+}
+
 async function aiChat(message: string, expenses: Expense[], profile: UserProfile, history: Message[]): Promise<string | null> {
   try {
     const res = await fetch(`${API}/ai/chat`, {
@@ -19,7 +31,8 @@ async function aiChat(message: string, expenses: Expense[], profile: UserProfile
     const data = await res.json();
     if (data.fallback || !data.reply) return null;
     return data.reply;
-  } catch {
+  } catch (err) {
+    if (import.meta.env.DEV) console.warn("[WealthWise AI] /ai/chat request failed, using local fallback:", err);
     return null;
   }
 }
@@ -46,7 +59,7 @@ function generateAIResponse(msg: string, expenses: Expense[], profile: UserProfi
   const m = msg.toLowerCase();
   const now = new Date();
   const cm = now.getMonth() + 1, cy = now.getFullYear();
-  const monthExp = expenses.filter(e => { const { year, month } = parseDateString(e.date); return year === cy && month === cm; });
+  const monthExp = expenses.filter(e => { const d = parseDateString(e.date); return d.getFullYear() === cy && d.getMonth() + 1 === cm; });
   const total = monthExp.reduce((s, e) => s + e.amount, 0);
   const byCat: Partial<Record<Category, number>> = {};
   for (const e of monthExp) byCat[e.category] = (byCat[e.category] || 0) + e.amount;

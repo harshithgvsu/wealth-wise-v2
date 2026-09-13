@@ -51,8 +51,8 @@ export function InvestmentSuggestions({ expenses, userProfile }: InvestmentSugge
       const y = now.getMonth() + 1 - i <= 0 ? now.getFullYear() - 1 : now.getFullYear();
       const total = expenses
         .filter((e) => {
-          const { year, month } = parseDateString(e.date);
-          return year === y && month === m;
+          const d = parseDateString(e.date);
+          return d.getFullYear() === y && d.getMonth() + 1 === m;
         })
         .reduce((s, e) => s + e.amount, 0);
       last3Totals.push(total);

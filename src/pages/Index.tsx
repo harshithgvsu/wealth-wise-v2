@@ -13,9 +13,11 @@ import { ExpenseList } from "@/components/ExpenseList";
 import { SpendingChart } from "@/components/SpendingChart";
 import { AIInsights } from "@/components/AIInsights";
 import { AIChat } from "@/components/AIChat";
+import { QuickLogOverlay } from "@/components/QuickLogOverlay";
 import { AuthPage } from "@/components/AuthPage";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { InvestmentSuggestions } from "@/components/InvestmentSuggestions";
+import { SeasonalTripPlanner } from "@/components/SeasonalTripPlanner";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { CreditCardHub } from "@/components/CreditCardHub";
 import { BankConnect } from "@/components/BankConnect";
@@ -439,7 +441,8 @@ export default function Index() {
                 </div>
               </div>
             )}
-            <InvestmentSuggestions expenses={expenses} userProfile={user} currentMonth={month} currentYear={year} />
+            <InvestmentSuggestions expenses={expenses} userProfile={user} />
+            <SeasonalTripPlanner expenses={expenses} userProfile={user} />
           </div>
         )}
 
@@ -505,6 +508,7 @@ export default function Index() {
       </nav>
 
       {user && <AIChat expenses={expenses} userProfile={user} onAddExpense={addExpense} />}
+      {user && <QuickLogOverlay onAddExpense={addExpense} />}
     </div>
   );
 }
