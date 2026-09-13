@@ -14,8 +14,15 @@ if (!(globalThis as { crypto?: { getRandomValues?: unknown } }).crypto?.getRando
 // For custom domain or root deployment, use base: "/"
 const BASE = "/wealth-wise/";
 
-export default defineConfig(() => ({
-  base: BASE,
+// The Capacitor iOS/Android shells serve the app from the root of their own
+// origin (capacitor://localhost/), not from /wealth-wise/ — a GitHub Pages
+// build's asset URLs 404 inside the native WKWebView with base unchanged,
+// which is exactly what a blank white screen on launch looks like. `npm run
+// cap:sync`/`cap:ios`/`cap:android` build with --mode capacitor to get root-
+// relative paths instead; the GitHub Pages build (`npm run build`/`deploy`)
+// is untouched.
+export default defineConfig(({ mode }) => ({
+  base: mode === "capacitor" ? "/" : BASE,
   server: {
     host: "::",
     port: 8080,
