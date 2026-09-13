@@ -55,11 +55,22 @@ async function fetchCards(): Promise<UserCard[]> {
     return [];
   }
 }
-function createCard(card: UserCard): Promise<Response> {
-  return apiFetch("/cards", { method: "POST", body: JSON.stringify(card) });
+// Both throw on a non-2xx response instead of returning it silently — a card
+// that only *looks* saved (optimistic UI) but never actually persisted is
+// exactly what made this bug invisible from inside the app before.
+async function createCard(card: UserCard): Promise<void> {
+  const res = await apiFetch("/cards", { method: "POST", body: JSON.stringify(card) });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`POST /cards ${res.status}: ${body}`);
+  }
 }
-function deleteCardRemote(id: string): Promise<Response> {
-  return apiFetch(`/cards/${id}`, { method: "DELETE" });
+async function deleteCardRemote(id: string): Promise<void> {
+  const res = await apiFetch(`/cards/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`DELETE /cards/${id} ${res.status}: ${body}`);
+  }
 }
 
 const CATEGORY_MATCH: Record<string, string[]> = {
@@ -483,6 +494,10 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"cards" | "optimizer" | "next">("cards");
+  // Surfaced when a save/delete actually fails server-side, instead of the
+  // silent optimistic-UI-looks-fine-but-never-persisted failure mode that
+  // made a genuine backend rejection invisible until the next login.
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Fetch from the backend on mount / user change — same pattern as useExpenses.
   useEffect(() => {
@@ -497,21 +512,42 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
   }, [userProfile?.id]);
 
   const persistAdd = (card: UserCard) => {
+    setSyncError(null);
     setCards(prev => {
       const next = [...prev, card]; // optimistic
       cacheCards(next, userProfile?.id);
       return next;
     });
     setShowAdd(false);
-    createCard(card).catch(() => console.warn("Card sync failed — saved locally only"));
+    createCard(card).catch((err) => {
+      console.error("Card save failed, rolling back:", err);
+      setSyncError("Couldn't save that card to your account — it's been removed here too. Check your connection and try again.");
+      setCards(prev => {
+        const next = prev.filter(c => c.id !== card.id); // roll back the optimistic add
+        cacheCards(next, userProfile?.id);
+        return next;
+      });
+    });
   };
   const removeCard = (id: string) => {
+    setSyncError(null);
+    const removed = cards.find(c => c.id === id);
     setCards(prev => {
       const next = prev.filter(c => c.id !== id); // optimistic
       cacheCards(next, userProfile?.id);
       return next;
     });
-    deleteCardRemote(id).catch(() => console.warn("Card delete sync failed"));
+    deleteCardRemote(id).catch((err) => {
+      console.error("Card delete failed, rolling back:", err);
+      setSyncError("Couldn't delete that card from your account — it's back. Check your connection and try again.");
+      if (removed) {
+        setCards(prev => {
+          const next = [...prev, removed]; // roll back the optimistic remove
+          cacheCards(next, userProfile?.id);
+          return next;
+        });
+      }
+    });
   };
 
   const allCategories = [...new Set(expenses.map(e => mapCategory(e.category)))];
@@ -535,6 +571,12 @@ export function CreditCardHub({ expenses, userProfile }: Props) {
       {stale && (
         <div className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-1.5">
           Showing cached card benefits — live update unavailable
+        </div>
+      )}
+      {syncError && (
+        <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <span>{syncError}</span>
         </div>
       )}
       {/* Header */}
