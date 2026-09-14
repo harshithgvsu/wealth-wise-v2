@@ -1,17 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-
-const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${API}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
-  });
-}
+import { apiFetch } from "@/lib/apiClient";
 
 export interface PlaidConnection {
   itemId: string;

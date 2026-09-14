@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch, setAuthToken, clearAuthToken, getAuthToken } from "@/lib/apiClient";
 
 export interface PaycheckRecord {
   id: string;
@@ -40,21 +41,6 @@ export interface AuthState {
   isLoggedIn: boolean;
 }
 
-const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-// Cookie-based: no token in localStorage. All requests use credentials: 'include'
-// so the httpOnly ww_token cookie is sent automatically by the browser.
-async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${API}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
-  });
-}
-
 async function syncCardsToLocal(userId: string) {
   try {
     const res = await apiFetch("/cards");
@@ -71,8 +57,10 @@ async function syncCardsToLocal(userId: string) {
 export function useAuth() {
   const [authState, setAuthState] = useState<AuthState>({ user: null, isLoggedIn: false });
 
-  // On mount, validate session via cookie (no localStorage read needed)
+  // On mount, validate the stored session token (falls back to cookie-only
+  // auth if none — see apiClient.ts for why a Bearer token is needed here).
   useEffect(() => {
+    if (!getAuthToken()) return;
     apiFetch("/auth/me")
       .then(async (res) => {
         if (!res.ok) return;
@@ -97,7 +85,7 @@ export function useAuth() {
         const data = await res.json();
         if (!data.success) return { success: false, error: data.error };
 
-        // Cookie is set by the server; just update state
+        if (data.token) setAuthToken(data.token);
         setAuthState({ user: data.user, isLoggedIn: true });
         syncCardsToLocal(data.user.id);
         return { success: true };
@@ -118,6 +106,7 @@ export function useAuth() {
         const data = await res.json();
         if (!data.success) return { success: false, error: data.error };
 
+        if (data.token) setAuthToken(data.token);
         setAuthState({ user: data.user, isLoggedIn: true });
         syncCardsToLocal(data.user.id);
         return { success: true };
@@ -129,8 +118,9 @@ export function useAuth() {
   );
 
   const logout = useCallback(async () => {
-    // Clear the httpOnly cookie server-side
+    // Clear the httpOnly cookie server-side (still relevant for same-site/custom-domain deploys)
     await apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    clearAuthToken();
     // Clear any remaining local data (cards cache only — no financial data stored locally)
     const userId = authState.user?.id;
     if (userId) localStorage.removeItem(`ww_cards_${userId}`);

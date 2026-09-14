@@ -11,7 +11,7 @@
  *   await migrateLocalData(user.id, token);
  */
 
-const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+import { apiFetch } from "@/lib/apiClient";
 
 // Old localStorage key formats used before the backend
 const OLD_EXPENSE_KEYS = [
@@ -27,8 +27,6 @@ const MIGRATED_FLAG = (id: string) => `ww_migrated_${id}`;
 export async function migrateLocalData(userId: string): Promise<void> {
   if (localStorage.getItem(MIGRATED_FLAG(userId))) return;
 
-  const headers = { "Content-Type": "application/json" };
-
   try {
     // ── Expenses ──────────────────────────────────────────────────────────
     let expenses: unknown[] = [];
@@ -43,10 +41,8 @@ export async function migrateLocalData(userId: string): Promise<void> {
     }
 
     if (expenses.length > 0) {
-      await fetch(`${API}/expenses/bulk`, {
+      await apiFetch("/expenses/bulk", {
         method: "POST",
-        credentials: "include",
-        headers,
         body: JSON.stringify({ expenses }),
       });
     }
@@ -64,10 +60,8 @@ export async function migrateLocalData(userId: string): Promise<void> {
     }
 
     if (cards.length > 0) {
-      await fetch(`${API}/cards/bulk`, {
+      await apiFetch("/cards/bulk", {
         method: "POST",
-        credentials: "include",
-        headers,
         body: JSON.stringify({ cards }),
       });
     }

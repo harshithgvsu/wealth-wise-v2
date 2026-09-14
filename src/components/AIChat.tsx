@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { MessageSquare, X, Send, Mic, MicOff, Bot, User, Loader2 } from "lucide-react";
 import { Expense, CATEGORIES, Category, getExpenseCardOptions, localDateString, parseDateString } from "@/hooks/useExpenses";
 import { UserProfile } from "@/hooks/useAuth";
+import { apiFetch } from "@/lib/apiClient";
 
 interface Message { id: string; role: "user" | "assistant"; content: string; timestamp: number; }
 interface AIChatProps { expenses: Expense[]; userProfile: UserProfile; onAddExpense?: (expense: Omit<Expense, "id" | "createdAt">) => void; }
@@ -22,10 +23,8 @@ if (!API && import.meta.env.DEV === false) {
 
 async function aiChat(message: string, expenses: Expense[], profile: UserProfile, history: Message[]): Promise<string | null> {
   try {
-    const res = await fetch(`${API}/ai/chat`, {
+    const res = await apiFetch("/ai/chat", {
       method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, expenses, profile, history: history.slice(-8) }),
     });
     const data = await res.json();
@@ -39,10 +38,8 @@ async function aiChat(message: string, expenses: Expense[], profile: UserProfile
 
 async function aiParseExpense(text: string): Promise<{ amount: number; category: Category; description: string; date: string } | null> {
   try {
-    const res = await fetch(`${API}/ai/parse-expense`, {
+    const res = await apiFetch("/ai/parse-expense", {
       method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     const data = await res.json();

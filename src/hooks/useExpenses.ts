@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { apiFetch } from "@/lib/apiClient";
 
 export type Category =
   | "Food & Dining"
@@ -75,7 +76,6 @@ export const CATEGORY_COLORS: Record<Category, string> = {
 };
 
 // ── Config ─────────────────────────────────────────────────────────────────
-const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const CARDS_KEY = (userId?: string) => `ww_cards_${userId || "anon"}`;
 
 // ── Category normalization (same as before) ────────────────────────────────
@@ -162,18 +162,6 @@ export function localDateString(date: Date = new Date()): string {
 export function parseDateString(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d);
-}
-
-// ── API helper — cookie-based auth, no token in localStorage ───────────────
-async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${API}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
-  });
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────
