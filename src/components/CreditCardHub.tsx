@@ -7,6 +7,7 @@ import {
 import type { Expense } from "@/hooks/useExpenses";
 import type { UserProfile } from "@/hooks/useAuth";
 import { usePresetCards, type PresetCard } from "@/hooks/usePresetCards";
+import { apiFetch } from "@/lib/apiClient";
 
 interface UserCard {
   presetId?: string; name: string; issuer: string; network: string;
@@ -32,16 +33,6 @@ interface UserCard {
 const CARDS_CACHE_KEY = (userId?: string) => `ww_cards_${userId || "anon"}`;
 function cacheCards(cards: UserCard[], userId?: string) {
   try { localStorage.setItem(CARDS_CACHE_KEY(userId), JSON.stringify(cards)); } catch {}
-}
-
-const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
-async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${API}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
-  });
 }
 
 async function fetchCards(): Promise<UserCard[]> {

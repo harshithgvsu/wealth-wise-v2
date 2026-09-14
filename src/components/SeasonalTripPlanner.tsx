@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Plane, Sparkles, Loader2, MapPin, TrendingDown } from "lucide-react";
 import { Expense } from "@/hooks/useExpenses";
 import { UserProfile } from "@/hooks/useAuth";
+import { apiFetch } from "@/lib/apiClient";
 
 // Cross-platform by design — no Capacitor/platform check anywhere in this file.
 // Works identically in the browser, the PWA, and the iOS/Android shells since
@@ -21,14 +22,10 @@ function seasonOf(month: number): Season {
   return "Fall";
 }
 
-const API = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-
 async function fetchAiTripIdeas(expenses: Expense[], profile: UserProfile): Promise<string | null> {
   try {
-    const res = await fetch(`${API}/ai/trip-ideas`, {
+    const res = await apiFetch("/ai/trip-ideas", {
       method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ expenses, profile }),
     });
     const data = await res.json();
