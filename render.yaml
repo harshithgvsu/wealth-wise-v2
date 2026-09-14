@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: wealth-wise
+    runtime: static
+    buildCommand: npm install && npm run build:render
+    staticPublishPath: ./dist
+    envVars:
+      # Points the built frontend at the deployed backend API.
+      - key: VITE_API_BASE_URL
+        value: https://wealthwise-backend-v2.onrender.com
+    routes:
+      # SPA fallback: client-side routes (react-router-dom) resolve to index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html

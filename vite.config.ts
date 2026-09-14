@@ -20,9 +20,14 @@ const BASE = "/wealth-wise/";
 // which is exactly what a blank white screen on launch looks like. `npm run
 // cap:sync`/`cap:ios`/`cap:android` build with --mode capacitor to get root-
 // relative paths instead; the GitHub Pages build (`npm run build`/`deploy`)
-// is untouched.
-export default defineConfig(({ mode }) => ({
-  base: mode === "capacitor" ? "/" : BASE,
+// is untouched. A Render/Vercel/Netlify-style static host also serves from
+// its own domain root, so `--mode render` (see `build:render` script) uses
+// the same root base.
+const ROOT_MODES = ["capacitor", "render"];
+export default defineConfig(({ mode }) => {
+  const base = ROOT_MODES.includes(mode) ? "/" : BASE;
+  return {
+  base,
   server: {
     host: "::",
     port: 8080,
@@ -44,7 +49,7 @@ export default defineConfig(({ mode }) => ({
         background_color: "#050507",
         display: "standalone",
         orientation: "portrait",
-        start_url: BASE,
+        start_url: base,
         icons: [
           {
             src: "favicon.ico",
@@ -68,4 +73,5 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-}));
+  };
+});
